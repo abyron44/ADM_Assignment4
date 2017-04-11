@@ -1,0 +1,459 @@
+---
+title: "Assignment 4"
+author: "Allison Byron"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Question
+
+How do we find the best ways to arrange the book displays at Flourish and Botts in order to increase sales?
+
+The main goal is to find actionable rules that provide clear and useful insights when creating the book displays at Flourish and Botts.
+
+I will use frequent pattern analysis (association rule mining) to find regularities in the dataset. Since the dataset is very large with over 90,000 historical sales transactions, the FPA algorithm that I will examine is Apriori. The Apriori algorithm results in rules that are easy to understand. It is helpful in identifying recurring purchasing patterns and the products that may lead to the purchase of another product with a high degree of certainty.
+
+The *bookbaskets* dataset contains 92,108 transactions of 220,447 book titles at a bookstore, Flourish and Botts.
+
+
+### Cleaning the data & Creating sparse matrix
+
+Remove duplicate entries by same user and only keep transactions with more than one book purchased.
+
+```{r}
+getwd()
+setwd("C:/Users/allison/Documents/Allison's Documents/BIA 6301/Assignment 4")
+
+library(arules) # load the arules package
+bookbaskets <- read.transactions("bookdata.tsv.gz", format="single",  	# specify the file and file format 
+                                 sep="\t",                    	# Specify the column separator (a tab)
+                                 cols=c("userid", "title"),    	# Specify the column of transaction IDs and of item IDs
+                                 rm.duplicates=T)       	# look for & remove duplicate entries by the same user
+```
+
+```{r}
+inspect(bookbaskets[1:5]) #Examine the first five transactions
+basketSizes<-size(bookbaskets) #Calculate number of books purchased by "userID"
+bookFreq<-itemFrequency(bookbaskets) #Calculate the support for each book title 
+bookCount <- (bookFreq/sum(bookFreq))*sum(basketSizes) # Get the absolute count of book occurrences.
+```
+
+```{r}
+summary(bookbaskets)
+```
+
+### Summary of *bookbaskets*
+
+Total of 92,108 transactions and 220,447 different book titles in the dataset.
+
+The best-selling titles at Flourish & Botts are: "Wild Animus", "The Lovely Bones: A Novel", "She's Come Undone", "The Da Vinci Code", and "Harry Potter and the Sorcerer's Stone". "Wild Animus" appeared in 2.72% of the transactions, "The Lovely Bones" appeared in 1.41%, and "She's Come Undone" appeared in 1.01%. "The Da Vinci Code" and "Harry Potter and the Sorcerer's Stone" were in 0.98% and 0.9% of the transactions, respectively.
+
+A total of 51,286 transactions contained only a single item, while one transaction had 10,250 items. The first quartile and median purchase sizes are one item, implying that 50% of the transactions contained one item. The mean of 11.1 indicates that the average transaction contained 11 books.
+
+```{r}
+itemFrequencyPlot(bookbaskets, support = 0.009) # Plot 1
+itemFrequencyPlot(bookbaskets, topN = 10) # Plot 2
+```
+Plot 1 - the support with a minimum equal to .9%
+Plot 2 - the top 10 books
+
+
+## Only include transactions with at least two book purchases
+
+```{r}
+bookbasket_use<-bookbaskets[basketSizes>1] #Only keep transactions with more than one book purchased. 
+bookbasket_use
+```
+
+### Summary of *bookbasket_use*
+
+```{r}
+summary(bookbasket_use)
+```
+
+In reviewing the summary of the sparse matrix for the transactions with at least two book purchases, the output 40,822 rows refers to the number of transactions and the output 220,447 columns refers to the 220,447 different books that might appear in someone's book basket. Each matrix cell is 1 if the item was purchased for the corresponding transaction, otherwise it is 0. The density value of 0.0001 indicates that less than 0.01% of the elements are non-zero. 
+
+The most popular items are the same as in the *bookbaskets* sparse matrix. "Wild Animus" appeared in 4.85% of the transactions, "The Lovely Bones" appeared in 2.75%, and "She's Come Undone" appeared in 2.07%.
+
+A total of 10,804 transactions contained only two items. The first quartile purchase size is two items, meaning that 25% of the transactions contained two items. The median purchase size is 4 items, meaning that 50% of the transactions contained less than 4 items while the other 50% contained more than 4 items. The mean of 23.79 indicates that the average transaction in this sparse matrix contained 23 books.
+
+
+### View the support of the book titles in a data frame
+
+```{r}
+freq_bookbaskets_data_frame <- as.data.frame(itemFrequency(bookbasket_use))
+#View(freq_bookbaskets_data_frame)
+itemFrequency(bookbasket_use[, 1:5]) #first 5 items
+```
+
+Plot top book titles -
+```{r}
+itemFrequencyPlot(bookbasket_use, support = 0.02) # Plot 1
+itemFrequencyPlot(bookbasket_use, topN = 20) # Plot 2
+```
+Plot 1 - the support with a minimum equal to 2%.
+Plot 2 - the top 20 books.
+
+The plot shows that the top 5 most common items are the following: "Wild Animus", "The Lovely Bones: A Novel", "She's Come Undone", "The Da Vinci Code", and "Harry Potter and the Sorcerer's Stone".
+
+
+## Identify books that appeal to readers in book clubs
+
+Specifically looking to appeal to audience similar to readers in Oprah's Book Club 
+
+Construct rules with a minimum support of 0.002 and minimum confidence of 0.8. 
+This means that the rules will at least cover 0.2% of the transactions, and they are correct at least 80% of the time.
+
+```{r} 
+bookbasketsrules <- apriori(bookbasket_use, parameter = list(support =
+                          0.002, confidence = 0.8, minlen = 2, maxlen =10)) 
+
+summary(bookbasketsrules) #Evaluating performance
+```
+Mean number of item purchases around 4.
+
+2-itemset: 1 rules
+3-itemset: 78 rules
+4-itemset: 59 rules
+5-itemset: 14 rules
+
+Total = 152 rules
+
+
+First 10 rules -
+```{r}
+inspect(bookbasketsrules[1:10]) 
+```
+The rules tend to involve book series: such as the Stephanie Plum, Left Behind and Key of Light trilogy series. This would be expected, as most readers tend to purchase multiple books in a series. 
+
+
+Sort the rules by lift.
+```{r}
+bookbasketsrules_sorted <- sort(bookbasketsrules, by = "lift")
+inspect(bookbasketsrules_sorted[1:10]) #Top 10 rules
+```
+
+Sort by lift and confidence.
+```{r}
+bookbasketsrules_sorted <-sort(bookbasketsrules, by = c("lift", "confidence"))
+inspect(bookbasketsrules_sorted[1:25]) # Top 25 rules
+```
+The first rule, with a lift of about 322, implies that customers who purchase "Key of Light" and "Key of Valor" are 322 times more likely to buy "Key of Knowledge" than the typical customer at Flourish and Blotts. With support of .0022 and confidence of 0.95, this rule covers 0.22% of the transactions and is correct in 95% of the customers purchases involving these books.
+
+Plot first ten rules -
+```{r}
+library(arulesViz)
+plot(bookbasketsrules_sorted[1:10], method="graph")
+plot(bookbasketsrules_sorted[1:10], method="graph", control=list(type="itemsets"))
+```
+
+## Exclude mystery/romance - focus on novels and literary fiction genre
+
+After researching the books in Oprah's book club, I have made the following assumptions regarding books appropriate for book club readers: 
+1) specifically looking for novels
+2) identify independent or stand alone novels (novels not particularly in a series)
+3) novels with original characters
+4) novels of literary fiction genre
+5) tend to exclude novels purely in the genre of mystery or romance
+
+
+- Construct rules with a minimum support of 0.0015 and minimum confidence of 0.7. 
+This means that the rules will at least cover 0.15% of the transactions, and they are correct at least 70% of the time.
+
+```{r}
+# Remove book series, mystery/romance novels
+bookclubrules_noseries <- apriori(bookbasket_use, parameter = list(support =
+                          0.0015, confidence = 0.7, minlen = 2),appearance = list(none = 
+                                                      c("Harry Potter and the Goblet of Fire", 
+                                                        "Harry Potter and the Prisoner of Azkaban", 
+                                                        "Harry Potter and the Sorcerer's Stone",
+                                                        "Harry Potter and the Order of the Phoenix",
+                                                        "Key of Knowledge",
+                                                        "Key of Light",
+                                                        "Key of Valor",
+                                                        "One for the Money",
+                                                        "Two for the Dough",
+                                                        "Three To Get Deadly : A Stephanie Plum Novel",
+                                                        "Four to Score",
+                                                        "High Five",
+                                                        "Hot Six : A Stephanie Plum Novel",
+                                                        "Seven Up",
+                                                        "Hard Eight : A Stephanie Plum Novel",
+                                                        "The Fellowship of the Ring",
+                                                        "The Two Towers",
+                                                        "The Return of the King",
+                                                        "Nicolae: The Rise of Antichrist",
+                                                        "Soul Harvest: The World Takes Sides",
+                                                        "Left Behind: A Novel of the Earth's Last Days",
+                                                        "Tribulation Force: The Continuing Drama of Those Left Behind",
+                                                        "The Amber Spyglass",
+                                                        "The Subtle Knife",
+                                                        "The No. 1 Ladies' Detective Agency",
+                                                        "Tears of the Giraffe",
+                                                        "Morality for Beautiful Girls",
+                                                        "The Reptile Room",
+                                                        #"Interview With the Vampire",
+                                                        #"The Queen of the Damned",
+                                                        #"The Vampire Lestat",
+                                                        "Interview With the Vampire")))
+```
+
+```{r}
+print(bookclubrules_noseries) 
+```
+
+```{r}
+summary(bookclubrules_noseries)
+```
+
+2-itemset: 2 rules
+3-itemset: 42 rules
+4-itemset: 39 rules
+
+Total = 83 rules
+
+Sort by lift and confidence.
+```{r}
+bookclubrules_sorted_noseries <-sort(bookclubrules_noseries, by = c("lift", "confidence"))
+inspect(bookclubrules_sorted_noseries[1:25]) # Top 25 rules
+```
+The first rule, with a lift of 243, implies if a customer buys "Assassins: Assignment: Jerusalem" and "Target: Antichrist", they are 243 times more likely to buy "Apollyon: The Destroyer Is Unleashed" than the typical customer at Flourish and Blotts. With support of .002 and confidence of 0.73, this rule covers 0.2% of the transactions and is correct in 73% of the customers purchases involving these books.
+
+Plot first ten rules -
+```{r}
+library(arulesViz)
+plot(bookclubrules_sorted_noseries[1:10], method="graph")
+plot(bookclubrules_sorted_noseries[1:10], method="graph", control=list(type="itemsets"))
+```
+
+
+## Based on previous assumptions, only include titles fitting book club criteria
+
+It was getting difficult to limit my rules to not include book series information, therefore, I decided to move forward with a different approach. It can be concluded that people who buy more than one book at a time, tend to buy multiple books based on a series by an author or publishing group.
+
+I sorted the book titles by the most frequent novels, and then spent some time researching these titles to identify the books that are appropriate for fitting the book club criteria.
+
+"White Oleander", "She's Come Undone", "The Deep End of the Ocean", "A House of Sand and Fog" and "East of Eden" were listed on Oprah's Book Club list. "Where The Heart Is" and "The Lovely Bones: A Novel" became listed on Oprah's list in 1998 and 2010, respectively.
+
+```{r}
+# Books purchased the most.
+itemFrequencyPlot(bookbasket_use, topN = 30) 
+```
+
+
+Construct rules with a minimum support of 0.001 and minimum confidence of 0.5. 
+This means that the rules will at least cover 0.1% of the transactions, and they are correct at least 50% of the time.
+
+```{r}
+bookclubrules2 <- apriori(bookbasket_use, parameter = list(support =
+                          0.001, confidence = 0.5, minlen = 2, maxlen = 10),appearance = list(lhs = 
+                                            c("The Lovely Bones: A Novel",
+                                              "She's Come Undone",
+                                              "The Nanny Diaries: A Novel",
+                                              "The Secret Life of Bees",
+                                              "Divine Secrets of the Ya-Ya Sisterhood: A Novel",
+                                              "White Oleander : A Novel",
+                                              "Life of Pi",
+                                              "Snow Falling on Cedars",
+                                              "Girl with a Pearl Earring",
+                                              "Where The Heart Is",
+                                              "Angela's Ashes",
+                                              "The Joy Luck Club",
+                                              "House of Sand and Fog",
+                                              "The Pilot's Wife : A Novel",
+                                              "East of Eden",
+                                              "To Kill a Mockingbird",
+                                              "The Deep End of the Ocean",
+                                              "The Red Tent",
+                                              "The Poisonwood Bible: A Novel"),
+                                            default="rhs"))
+
+```
+
+```{r}
+print(bookclubrules2) 
+```
+
+```{r}
+summary(bookclubrules2)
+```
+
+Mean number of item purchases around 3.
+
+3-itemset: 37 rules
+4-itemset: 3 rules
+
+Total = 40 rules
+
+```{r}
+#sort by lift & confidence
+bookclubrules_sorted_2 <-sort(bookclubrules2, by = c("lift", "confidence"))
+inspect(bookclubrules_sorted_2[1:40]) # Top 40 rules
+```
+The first rule, with a lift of 69, implies if a customer buys "Snow Falling on Cedars" and "The Poisonwood Bible: A Novel", they are 69 times more likely to buy "Jewel" than the typical customer at Flourish and Blotts. With support of .001 and confidence of 0.54, this rule covers 0.1% of the transactions and is correct in 54% of the customers purchases involving these books.
+
+Plot first ten rules -
+```{r}
+library(arulesViz)
+plot(bookclubrules_sorted_2[1:10], method="graph")
+plot(bookclubrules_sorted_2[1:10], method="graph", control=list(type="itemsets"))
+```
+
+
+### "She's Come Undone" rules
+
+```{r}
+Shes_Come_Undone_rules <- subset(bookclubrules_sorted_2, items %in% "She's Come Undone")
+inspect(Shes_Come_Undone_rules)
+```
+If a customer purchases "She's Come Undone" and "The Deep End of the Ocean", they are 40 times more likely to purchase "Summer Sisters" than the typical customer.
+Support = .13% and Confidence = 50%
+
+
+### "Where The Heart Is" rules
+
+```{r}
+Where_The_Heart_Is_rules <- subset(bookclubrules_sorted_2, items %in% "Where The Heart Is")
+inspect(Where_The_Heart_Is_rules)
+```
+If a customer purchases "House of Sand and Fog" and "Where the Heart Is", they are 63 more times likely to purchase "The Book of Ruth".
+
+
+## Exclude books in a series and "Wild Animus"
+
+Construct rules with a minimum support of 0.001 and minimum confidence of 0.7. 
+This means that the rules will at least cover 0.1% of the transactions, and they are correct at least 70% of the time.
+
+```{r}
+#Remove Wild Animus from both the lhs and rhs
+bookbasketsrules_noWA <- apriori(bookbasket_use, parameter = list(support =
+                          0.001, confidence = 0.7, minlen = 2, maxlen = 5),appearance = list(none = 
+                                                      c("Wild Animus", 
+                                                        "Harry Potter and the Goblet of Fire", 
+                                                        "Harry Potter and the Prisoner of Azkaban", 
+                                                        "Harry Potter and the Sorcerer's Stone",
+                                                        "Harry Potter and the Order of the Phoenix",
+                                                        "Key of Knowledge",
+                                                        "Key of Light",
+                                                        "Key of Valor",
+                                                        "One for the Money",
+                                                        "Two for the Dough",
+                                                        "Three To Get Deadly : A Stephanie Plum Novel",
+                                                        "Four to Score",
+                                                        "High Five",
+                                                        "Hot Six : A Stephanie Plum Novel",
+                                                        "Seven Up",
+                                                        "Hard Eight : A Stephanie Plum Novel",
+                                                        "The Fellowship of the Ring",
+                                                        "The Two Towers",
+                                                        "The Return of the King",
+                                                        "Nicolae: The Rise of Antichrist",
+                                                        "Soul Harvest: The World Takes Sides",
+                                                        "Left Behind: A Novel of the Earth's Last Days",
+                                                        "Tribulation Force: The Continuing Drama of Those Left Behind",
+                                                        "The Amber Spyglass",
+                                                        "The Subtle Knife",
+                                                        "The No. 1 Ladies' Detective Agency",
+                                                        "Tears of the Giraffe",
+                                                        "Morality for Beautiful Girls",
+                                                        "The Reptile Room",
+                                                        "Interview With the Vampire")))
+```
+
+```{r}
+print(bookbasketsrules_noWA) 
+```
+
+```{r}
+summary(bookbasketsrules_noWA)
+```
+
+```{r}
+#sort by lift & confidence
+bookbasketsrules_noWA_sorted <-sort(bookbasketsrules_noWA, by = c("lift", "confidence"))
+inspect(bookbasketsrules_noWA_sorted[1:10]) # Top 10 rules
+```
+
+
+```{r}
+#limit books in series
+bookdisplayrules <- subset(bookbasketsrules_noWA_sorted, lhs %in%c("The Lovely Bones: A Novel",
+                                              "She's Come Undone",
+                                              "The Nanny Diaries: A Novel",
+                                              "The Secret Life of Bees",
+                                              "Divine Secrets of the Ya-Ya Sisterhood: A Novel",
+                                              "White Oleander : A Novel",
+                                              "Life of Pi",
+                                              "Snow Falling on Cedars",
+                                              "Girl with a Pearl Earring",
+                                              "Where The Heart Is",
+                                              "Angela's Ashes",
+                                              "The Joy Luck Club",
+                                              "House of Sand and Fog",
+                                              "The Pilot's Wife : A Novel",
+                                              "East of Eden",
+                                              "To Kill a Mockingbird",
+                                              "The Deep End of the Ocean",
+                                              "The Red Tent",
+                                              "The Poisonwood Bible: A Novel"))
+inspect(bookdisplayrules[1:20])
+```
+
+### "The Lovely Bones: A Novel" rules
+
+```{r}
+rules1 <- subset(bookbasketsrules_noWA_sorted, items %in% "The Lovely Bones: A Novel")
+inspect(rules1[1:5])
+```
+Looking at the second rule (does not include "Wild Animus" or books in a series), if a customer purchases "In Her Shoes: A Novel" and "The Lovely Bones: A Novel", they are 64 times more likely to purchase "Good in Bed" than the typical customer. This rule covers 0.1% of the transactions and is correct in 71% of the customers purchases involving these books.
+
+
+### "She's Come Undone" rules
+
+```{r}
+rules2 <- subset(bookbasketsrules_noWA_sorted, items %in% "She's Come Undone")
+inspect(rules2[5:10])
+```
+Looking at the second rule (does not include "Wild Animus" or books in a series), if a customer purchases "She's Come Undone", "Summer Sisters" and "The Girls' Guide to Hunting and Fishing", they are 45 times more likely to purchase "Divine Secrets of the Ya-Ya Sisterhood: A Novel" than the typical customer. This rule covers 0.1% of the transactions and is correct in 75% of the customers purchases involving these books.
+
+
+### "The Red Tent" rules
+
+```{r}
+rules3 <- subset(bookbasketsrules_noWA_sorted, items %in% "The Red Tent")
+inspect(rules3)
+```
+Looking at the first rule, if a customer purchases "Songs in Ordinary Time" and "The Red Tent", they are 35 times more likely to purchase "She's Come Undone" than the typical customer. This rule covers 0.1% of the transactions and is correct in 75% of the customers purchases involving these books.
+
+
+### "The Notebook" rules
+
+```{r}
+rules4 <- subset(bookbasketsrules_noWA_sorted, items %in% "The Notebook")
+inspect(rules4)
+```
+Looking at the fourth rule, if a customer purchases "A Bend in the Road" and "Summer Sisters", they are 54 times more likely to purchase "The Notebook" than the typical customer. This rule covers 0.1% of the transactions and is correct in 74% of the customers purchases involving these books.
+
+
+
+# Recommendations
+
+In analyzing this dataset, it is evident that customers at Flourish and Botts who buy more than one book at a time, tend to buy their books in groups based on a series by an author/publishing group or they tend to buy a group of independent novels from the same author. This makes sense as the layout of most bookstores has displays grouped by series or author to allow for the most book sales.
+
+In creating a book display to appeal to readers who belong in book clubs, I would recommend including the following books: "White Oleander", "She's Come Undone", "The Deep End of the Ocean", "A House of Sand and Fog", "East of Eden", "Where The Heart Is" and "The Lovely Bones: A Novel". All of these book titles are included on Oprah's Book Club list.
+
+If looking to create displays similar to the books in Oprah's Book Club, I would also recommend including the following: "The Nanny Diaries: A Novel", "A Painted House", "The Secret Life of Bees", "Divine Secrets of the Ya-Ya Sisterhood: A Novel", "White Oleander : A Novel", "Life of Pi", "Snow Falling on Cedars", "Girl with a Pearl Earring", "Angela's Ashes", "The Joy Luck Club", "The Pilot's Wife : A Novel", "To Kill a Mockingbird", "The Red Tent" and "The Poisonwood Bible: A Novel". All of these titles listed are independent novels (not in a series), and these novels are not of the mystery or romance genre.
+
+
+My recommendations below are based on the most useful rules with a high confidence and lift. A high "lift" value indicates that a customer's likeliness to make a purchase is greater. A high "confidence"" value implies that the rule is correct for a greater percentage of the transactions.
+
+Based on my list, I would recommend the following groupings for the book displays:
+1) "She's Come Undone", "The Deep End of the Ocean" and "Summer Sisters"
+2) "House of Sand and Fog", "Where the Heart Is" and "The Book of Ruth"
+3) "Snow Falling on Cedars", "The Poisonwood Bible: A Novel" and "Jewel"
+
+Additional recommendations for the book displays, not including "Wild Animus" or books in a series, are:
+1) "In Her Shoes: A Novel", "The Lovely Bones: A Novel" and "Good in Bed"
+2) "She's Come Undone", "Summer Sisters", "The Girls' Guide to Hunting and Fishing" and "Divine Secrets of the Ya-Ya   Sisterhood: A Novel"
+3) "Songs in Ordinary Time", "The Red Tent" and "She's Come Undone"
+4) "A Bend in the Road", "Summer Sisters" and "The Notebook"
